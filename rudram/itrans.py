@@ -55,7 +55,7 @@ ROM_CONS = {'k': 'k', 'kh': 'kh', 'g': 'g', 'gh': 'gh', '~N': 'n', 'ch': 'c', 'C
             'h': 'h', 'L': 'l'}
 ROM_VOWEL = {'a': 'a', 'A': 'aa', 'i': 'i', 'I': 'ii', 'u': 'u', 'U': 'uu', 'R': 'ri', 'RR': 'rii',
              'LR': 'li', 'e': 'e', 'ai': 'ai', 'o': 'o', 'au': 'au'}
-ROM_CODA = {'M': 'm', 'H': 'h', 'gm': 'gm'}
+ROM_CODA = {'M': 'm', 'H': 'h', 'gm': 'gum'}  # recited [gɨ̆M], written गुं for the voice
 
 
 @dataclasses.dataclass
