@@ -20,7 +20,7 @@ LEVELS = {'low': -2.0, 'mid': 0.0, 'high': 1.0}
 PITCH_TOL = 0.5      # semitones: half the smallest gap between levels
 DUR_TOL = 0.2        # relative, per syllable (as in Chandi)
 BASE_HZ = 120.0      # reciter's mid (udAtta / pracaya) pitch; see RULES.md
-VERSION = 2          # bump when the rendering changes (invalidates the phrase cache)
+VERSION = 3          # bump when the rendering changes (invalidates the phrase cache)
 
 
 def matras(syls):
@@ -162,11 +162,12 @@ def f0_track(wave, sr):
 
 
 def syllable_pitch(wave, sr, al, track=None):
-    """Median F0 (semitones re BASE_HZ) of each syllable's voiced nucleus: frames from the vowel
-    onset to the start of the next syllable's onset consonants (to speech end for the last).
-    None where fewer than 3 voiced frames are found."""
+    """Median F0 (semitones re BASE_HZ) over the voiced frames of each syllable segment: from
+    its onset consonants to the next syllable's onset consonants (to speech end for the last),
+    i.e. exactly the region that pitch_map shifts. None where fewer than 3 voiced frames
+    (15 ms) are found."""
     t, f0, voiced = track or f0_track(wave, sr)
-    ons, nxt = al['onsets'], list(al['cons_start'][1:]) + [al['end']]
+    ons, nxt = al['cons_start'], list(al['cons_start'][1:]) + [al['end']]
     out = []
     for o, e in zip(ons, nxt):
         e = max(e, o + 0.04)

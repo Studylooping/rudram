@@ -127,9 +127,11 @@ Chandi project: laghu 1, guru 2, pāda-final syllable held as guru, all syllable
 A phrase is reported compliant only if, measured on the final audio:
 - **durations**: after re-alignment (MMS_FA forced alignment) every syllable is within ±20 % of
   its target × the fitted unit (as in Chandi);
-- **pitch**: every syllable's median F0 (pYIN, voiced frames from its vowel onset to the next
-  syllable's onset consonants) is within ±0.5 semitone of its class level, so that the nearest
-  level is the right class. A syllable whose F0 cannot be measured counts as a failure.
+- **pitch**: every syllable's median F0 (pYIN, voiced frames of the syllable segment, from its
+  onset consonants to the next syllable's onset consonants, which is the region the pitch
+  control shifts) is within ±0.5 semitone of its class level, so that the nearest level is the
+  right class. A syllable with fewer than 3 voiced frames (15 ms) counts as a failure (the TTS
+  voice sometimes devoices or whispers a syllable; such a take is re-synthesised).
 A failing phrase is re-synthesised with other seeds; if none passes, the best take is used and
 reported as non-compliant.
 
