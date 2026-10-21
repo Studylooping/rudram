@@ -20,7 +20,7 @@ LEVELS = {'low': -2.0, 'mid': 0.0, 'high': 1.0}
 PITCH_TOL = 0.5      # semitones: half the smallest gap between levels
 DUR_TOL = 0.2        # relative, per syllable (as in Chandi)
 BASE_HZ = 120.0      # reciter's mid (udAtta / pracaya) pitch; see RULES.md
-VERSION = 3          # bump when the rendering changes (invalidates the phrase cache)
+VERSION = 4          # bump when the rendering changes (invalidates the phrase cache)
 
 
 def matras(syls):
@@ -214,7 +214,7 @@ def _fill(vals, default=0.0):
     return [v if v is not None else vals[min(idx, key=lambda j: abs(j - i))] for i, v in enumerate(vals)]
 
 
-def render_phrase(engine, syls, u, targets=None, seeds=(0, 1, 2, 3), refine=2):
+def render_phrase(engine, syls, u, targets=None, seeds=tuple(range(8)), refine=3):
     """Render one phrase to mAtrA timing and svara pitch; verify; retry other seeds on failure.
     Returns the first verified take, else the best one (reported as non-compliant).
     targets: per-syllable mAtrAs (default: the Vedic model, matras())."""
@@ -222,15 +222,30 @@ def render_phrase(engine, syls, u, targets=None, seeds=(0, 1, 2, 3), refine=2):
     targets = targets or matras(syls)
     want = [LEVELS[PITCH[s.svara]] for s in syls]
     text = tts_text(syls)
-    best, notes = None, []
-    for seed in seeds:
-        raw = engine.synth(text, seed)
-        if len(raw) < 0.06 * sr * len(syls):
-            notes.append(f'seed {seed}: clip of {len(raw) / sr:.2f}s'); continue
-        try:
-            al = align(raw, sr, syls)
-        except RuntimeError as e:
-            notes.append(f'seed {seed}: align {e}'); continue
+    best, notes, spare = None, [], None
+    takes = (s for s in seeds)
+    while True:
+        seed = next(takes, None)
+        if seed is None:
+            if spare is None:
+                break
+            # no take had every syllable voiced: process the best one (it cannot verify)
+            seed, raw, al, spare = spare[1], spare[2], spare[3], None
+        else:
+            raw = engine.synth(text, seed)
+            if len(raw) < 0.06 * sr * len(syls):
+                notes.append(f'seed {seed}: clip of {len(raw) / sr:.2f}s'); continue
+            try:
+                al = align(raw, sr, syls)
+            except RuntimeError as e:
+                notes.append(f'seed {seed}: align {e}'); continue
+            # screen: a syllable the voice devoiced (no F0) can never reach its svara level
+            unvoiced = sum(m is None for m in syllable_pitch(raw, sr, al))
+            if unvoiced:
+                notes.append(f'seed {seed}: {unvoiced} devoiced syllable(s) in the raw take')
+                if spare is None or unvoiced < spare[0]:
+                    spare = (unvoiced, seed, raw, al)
+                continue
         # 1. time map: vowel onset i -> lead + sum(targets[:i]) * u ; speech end -> lead + total
         a_in, a_out, t = [], [], al['onsets'][0]
         for o, m in zip(al['onsets'], targets):
