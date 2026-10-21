@@ -21,7 +21,7 @@ LEVELS = {'low': -2.0, 'mid': 0.0, 'high': 1.0}
 PITCH_TOL = 0.5      # semitones: half the smallest gap between levels
 DUR_TOL = 0.2        # relative, per syllable (as in Chandi)
 BASE_HZ = 120.0      # reciter's mid (udAtta / pracaya) pitch; see RULES.md
-VERSION = 5          # bump when the rendering changes (invalidates the phrase cache)
+VERSION = 6          # bump when the rendering changes (invalidates the phrase cache)
 
 
 def matras(syls):
@@ -134,11 +134,13 @@ def stretch(wave, sr, anchors_in, anchors_out, ctx=0.06, fade=0.008):
     return ola.result()
 
 
-def world_pitch(wave, sr, bounds, levels, frame_ms=5.0, glide_ms=25.0):
+def world_pitch(wave, sr, bounds, levels, frame_ms=5.0, glide_ms=30.0, trend_ms=120.0, micro_max=0.35):
     """Set the pitch of every syllable segment k = [bounds[k], bounds[k+1]) to the level
     levels[k] (semitones re BASE_HZ) with the WORLD vocoder: F0 (Harvest), spectral envelope
     (CheapTrick, so formants are kept) and aperiodicity (D4C) are analysed, F0 is replaced by
-    the target contour (level steps smoothed over glide_ms), unvoiced frames stay unvoiced."""
+    the target contour (level steps glide over glide_ms) plus the voice's own micro-intonation
+    (its F0 minus a trend_ms moving average, clipped to +-micro_max semitones), so the line is
+    not machine-flat. Unvoiced frames stay unvoiced."""
     import pyworld as pw
     x = wave.astype(np.float64)
     f0, t = pw.harvest(x, sr, f0_floor=65.0, f0_ceil=300.0, frame_period=frame_ms)
@@ -149,7 +151,14 @@ def world_pitch(wave, sr, bounds, levels, frame_ms=5.0, glide_ms=25.0):
         target[t >= bounds[k]] = levels[k]
     n = max(int(glide_ms / frame_ms), 1)
     target = np.convolve(np.pad(target, n // 2, mode='edge'), np.ones(n) / n, 'valid')[: len(t)]
-    new_f0 = np.where(f0 > 0, BASE_HZ * 2 ** (target / 12), 0.0)
+    voiced = f0 > 0
+    st = np.where(voiced, 12 * np.log2(np.maximum(f0, 1.0) / BASE_HZ), 0.0)
+    m = max(int(trend_ms / frame_ms), 1)
+    ker = np.ones(m)
+    num = np.convolve(np.pad(st, m // 2, mode='edge'), ker, 'valid')[: len(t)]
+    den = np.convolve(np.pad(voiced.astype(float), m // 2, mode='edge'), ker, 'valid')[: len(t)]
+    micro = np.clip(st - num / np.maximum(den, 1), -micro_max, micro_max)
+    new_f0 = np.where(voiced, BASE_HZ * 2 ** ((target + micro) / 12), 0.0)
     y = pw.synthesize(new_f0, sp, ap, sr, frame_ms).astype(np.float32)
     return np.pad(y, (0, max(0, len(wave) - len(y))))[: len(wave)]
 
