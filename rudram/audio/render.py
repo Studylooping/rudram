@@ -21,7 +21,7 @@ LEVELS = {'low': -2.0, 'mid': 0.0, 'high': 1.0}
 PITCH_TOL = 0.5      # semitones: half the smallest gap between levels
 DUR_TOL = 0.2        # relative, per syllable (as in Chandi)
 BASE_HZ = 120.0      # reciter's mid (udAtta / pracaya) pitch; see RULES.md
-VERSION = 7          # bump when the rendering changes (invalidates the phrase cache)
+VERSION = 8          # bump when the rendering changes (invalidates the phrase cache)
 
 
 def matras(syls):
@@ -253,19 +253,25 @@ def render_phrase(engine, syls, u, targets=None, seeds=tuple(range(5)), refine=2
                 break
             lead = al['onsets'][0] - a_out[0]
             out = stretch(out, sr, al['onsets'] + [al['end']], [a + lead for a in a_out])
-        # 2. pitch: every syllable segment (onset consonants .. next onset consonants) to its level
+        # 2. pitch: every syllable segment (onset consonants .. next onset consonants) to its
+        #    level with WORLD; closed loop: the residual measured by pYIN offsets the next pass
         al = align(out, sr, syls)
-        out = world_pitch(out, sr, list(al['cons_start']), want)
-        # 3. verify on the final audio (re-alignment + pYIN, independent of WORLD's Harvest);
-        #    durations that drifted are corrected once more by a time-only stretch (pitch kept)
-        for k in range(refine + 1):
+        pre, bounds, adj = out, list(al['cons_start']), [0.0] * len(syls)
+        for _ in range(refine + 1):
+            out = world_pitch(pre, sr, bounds, [w + a for w, a in zip(want, adj)])
+            # 3. verify on the final audio (re-alignment + pYIN, independent of WORLD's Harvest)
             al = align(out, sr, syls)
             dur_ok, u_fit, derr = check_rhythm(iois(al['onsets'], al['end']), targets)
-            if dur_ok or k == refine:
+            pitch_ok, perr = check_pitch(syllable_pitch(out, sr, al), syls)
+            if pitch_ok:
                 break
+            adj = [a - max(-1.0, min(1.0, e)) if e is not None else a for a, e in zip(adj, perr)]
+        if not dur_ok:  # durations drifted in the vocoder pass: time-only correction, re-verify
             lead = al['onsets'][0] - a_out[0]
             out = stretch(out, sr, al['onsets'] + [al['end']], [a + lead for a in a_out])
-        pitch_ok, perr = check_pitch(syllable_pitch(out, sr, al), syls)
+            al = align(out, sr, syls)
+            dur_ok, u_fit, derr = check_rhythm(iois(al['onsets'], al['end']), targets)
+            pitch_ok, perr = check_pitch(syllable_pitch(out, sr, al), syls)
         res = PhraseResult(out[: int(al['end'] * sr) + int(0.05 * sr)], dur_ok and pitch_ok, dur_ok,
                            pitch_ok, u_fit, derr, perr, seed, notes)
         if res.ok:
