@@ -21,7 +21,7 @@ LEVELS = {'low': -2.0, 'mid': 0.0, 'high': 1.0}
 PITCH_TOL = 0.5      # semitones: half the smallest gap between levels
 DUR_TOL = 0.2        # relative, per syllable (as in Chandi)
 BASE_HZ = 120.0      # reciter's mid (udAtta / pracaya) pitch; see RULES.md
-VERSION = 6          # bump when the rendering changes (invalidates the phrase cache)
+VERSION = 7          # bump when the rendering changes (invalidates the phrase cache)
 
 
 def matras(syls):
@@ -139,8 +139,9 @@ def world_pitch(wave, sr, bounds, levels, frame_ms=5.0, glide_ms=30.0, trend_ms=
     levels[k] (semitones re BASE_HZ) with the WORLD vocoder: F0 (Harvest), spectral envelope
     (CheapTrick, so formants are kept) and aperiodicity (D4C) are analysed, F0 is replaced by
     the target contour (level steps glide over glide_ms) plus the voice's own micro-intonation
-    (its F0 minus a trend_ms moving average, clipped to +-micro_max semitones), so the line is
-    not machine-flat. Unvoiced frames stay unvoiced."""
+    (its F0 minus a trend_ms moving average, clipped to +-micro_max semitones, with its median
+    removed per syllable so it does not move the level), so the line is not machine-flat.
+    Unvoiced frames stay unvoiced."""
     import pyworld as pw
     x = wave.astype(np.float64)
     f0, t = pw.harvest(x, sr, f0_floor=65.0, f0_ceil=300.0, frame_period=frame_ms)
@@ -158,6 +159,11 @@ def world_pitch(wave, sr, bounds, levels, frame_ms=5.0, glide_ms=30.0, trend_ms=
     num = np.convolve(np.pad(st, m // 2, mode='edge'), ker, 'valid')[: len(t)]
     den = np.convolve(np.pad(voiced.astype(float), m // 2, mode='edge'), ker, 'valid')[: len(t)]
     micro = np.clip(st - num / np.maximum(den, 1), -micro_max, micro_max)
+    edges = [t[0] - 1] + list(bounds[1:]) + [t[-1] + 1]
+    for k in range(len(levels)):  # zero median per syllable: the movement must not shift the level
+        seg = (t >= edges[k]) & (t < edges[k + 1]) & voiced
+        if seg.any():
+            micro[seg] -= np.median(micro[seg])
     new_f0 = np.where(voiced, BASE_HZ * 2 ** ((target + micro) / 12), 0.0)
     y = pw.synthesize(new_f0, sp, ap, sr, frame_ms).astype(np.float32)
     return np.pad(y, (0, max(0, len(wave) - len(y))))[: len(wave)]
@@ -250,9 +256,15 @@ def render_phrase(engine, syls, u, targets=None, seeds=tuple(range(5)), refine=2
         # 2. pitch: every syllable segment (onset consonants .. next onset consonants) to its level
         al = align(out, sr, syls)
         out = world_pitch(out, sr, list(al['cons_start']), want)
-        # 3. verify on the final audio (re-alignment + pYIN, independent of WORLD's Harvest)
-        al = align(out, sr, syls)
-        dur_ok, u_fit, derr = check_rhythm(iois(al['onsets'], al['end']), targets)
+        # 3. verify on the final audio (re-alignment + pYIN, independent of WORLD's Harvest);
+        #    durations that drifted are corrected once more by a time-only stretch (pitch kept)
+        for k in range(refine + 1):
+            al = align(out, sr, syls)
+            dur_ok, u_fit, derr = check_rhythm(iois(al['onsets'], al['end']), targets)
+            if dur_ok or k == refine:
+                break
+            lead = al['onsets'][0] - a_out[0]
+            out = stretch(out, sr, al['onsets'] + [al['end']], [a + lead for a in a_out])
         pitch_ok, perr = check_pitch(syllable_pitch(out, sr, al), syls)
         res = PhraseResult(out[: int(al['end'] * sr) + int(0.05 * sr)], dur_ok and pitch_ok, dur_ok,
                            pitch_ok, u_fit, derr, perr, seed, notes)
