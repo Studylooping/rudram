@@ -81,6 +81,12 @@ that wording could not be checked).
 The svarita is realised as a level high syllable (current practice), not as a contour; sannatara
 is not lowered further; kampa is not rendered (see 3).
 
+Realisation in audio: the pitch of each syllable segment (onset consonants to the next onset) is
+set with the WORLD vocoder. Steps between levels glide over 30 ms, and the voice's own
+micro-intonation (its F0 minus a 120 ms moving average, clipped to ±0.35 semitone) is kept on top
+of the level so the line is not machine-flat. Both are presentation choices of this project, not
+rules from the sources; the verification (§6) applies to the result.
+
 ## 3. Dīrgha-svarita and kampa
 The dīrgha-svarita gets the high level like the svarita. Vedavms says it is "rendered in the upper
 note like Swarita for twice the time (MAtra) scale"; Arsha Vidya: it occurs "at the end of a
