@@ -80,9 +80,10 @@ def metre_phrases(verse, metre):
     if cur:
         padas.append(' '.join(cur))
     if len(padas) != 4 or any(len(syllabify(p)[0]) != n for p in padas):
-        # a pAda boundary inside a word: fall back to splitting the syllable list
-        return [(text, 'double')], True
-    return [(p, 'danda' if i % 2 == 0 else 'double') for i, p in enumerate(padas)], False
+        raise ValueError(f'{metre}: pAda boundaries not found: {text[:40]}')
+    # one TTS phrase per half-verse: a pAda boundary may fall inside a word (1st verse:
+    # visphura-jjyotiH), which the voice cannot say as two separate phrases
+    return [(padas[0] + ' ' + padas[1], 'danda'), (padas[2] + ' ' + padas[3], 'double')]
 
 
 def namaka_units(src=None):
@@ -123,9 +124,8 @@ def dhyana_units(src=None):
             verses.append(cur); cur = ''
     units = []
     for i, (v, m) in enumerate(zip(verses, ['shArdUlavikrIDita', 'sragdharA'])):
-        phrases, fallback = metre_phrases(v, m)
         units.append({'id': f'dhyana-{i + 1}', 'title': f'dhyAna zloka {i + 1} ({m})', 'kind': 'metre',
-                      'metre': m, 'phrases': phrases})
+                      'metre': m, 'pada_len': len(METRES[m]), 'phrases': metre_phrases(v, m)})
     return units
 
 

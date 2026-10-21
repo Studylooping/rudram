@@ -20,6 +20,7 @@ LEVELS = {'low': -2.0, 'mid': 0.0, 'high': 1.0}
 PITCH_TOL = 0.5      # semitones: half the smallest gap between levels
 DUR_TOL = 0.2        # relative, per syllable (as in Chandi)
 BASE_HZ = 120.0      # reciter's mid (udAtta / pracaya) pitch; see RULES.md
+VERSION = 2          # bump when the rendering changes (invalidates the phrase cache)
 
 
 def matras(syls):
@@ -46,7 +47,7 @@ def tts_text(syls):
         if 'gm' in coda:
             t += 'गुं'
         out.append(t)
-    return ''.join(out)
+    return ''.join(out) + '।'  # a closing danda: the voice ends the phrase naturally
 
 
 class ParlerEngine:
@@ -168,7 +169,7 @@ def syllable_pitch(wave, sr, al, track=None):
     ons, nxt = al['onsets'], list(al['cons_start'][1:]) + [al['end']]
     out = []
     for o, e in zip(ons, nxt):
-        e = max(e, o + 0.03)
+        e = max(e, o + 0.04)
         m = (t >= o) & (t < e) & voiced & np.isfinite(f0)
         out.append(float(12 * np.log2(np.median(f0[m]) / BASE_HZ)) if m.sum() >= 3 else None)
     return out

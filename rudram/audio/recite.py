@@ -25,7 +25,9 @@ def targets_for(unit, syls):
     if unit['kind'] != 'metre':
         return render.matras(syls)
     m = [1 if w == 'L' else 2 for w in weights(syls)]
-    m[-1] = 2  # pAdAnta: the last syllable of a pAda is held as guru
+    n = unit['pada_len']
+    for i in range(n - 1, len(m), n):
+        m[i] = 2  # pAdAnta: the last syllable of a pAda is held as guru
     return m
 
 
@@ -58,7 +60,7 @@ def main():
         for k, (text, pause) in enumerate(unit['phrases']):
             syls, notes = syllabify(text)
             targets = targets_for(unit, syls)
-            key = hashlib.sha1(json.dumps([text, targets, render.LEVELS, render.BASE_HZ]).encode()).hexdigest()[:12]
+            key = hashlib.sha1(json.dumps([text, targets, render.LEVELS, render.BASE_HZ, render.VERSION]).encode()).hexdigest()[:12]
             stem = cache / f"{unit['id']}_{k + 1:03d}_{key}"
             if stem.with_suffix('.wav').exists() and stem.with_suffix('.json').exists():
                 w, _ = sf.read(stem.with_suffix('.wav'), dtype='float32')
