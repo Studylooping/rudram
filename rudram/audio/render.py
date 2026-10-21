@@ -1,9 +1,10 @@
 """Svara-faithful rendering: TTS -> syllable alignment -> time-map stretch -> per-syllable pitch
-shift -> verify (re-alignment for durations, F0 tracking for svara pitch).
+setting -> verify (re-alignment for durations, pYIN F0 tracking for svara pitch).
 
 Time handling (TTS engine, Rubber Band stretch, piecewise time map) is adapted from the sister
-project Studylooping/Chandi (chandi/audio/render.py). Pitch control and pitch verification are
-new here. The duration and pitch model is documented in RULES.md.
+project Studylooping/Chandi (chandi/audio/render.py). Pitch is set with the WORLD vocoder
+(per-segment Rubber Band pitch scaling was tried first: it left residual errors and devoiced
+short syllables, and needed several passes). The model is documented in RULES.md.
 """
 import dataclasses
 
@@ -20,7 +21,7 @@ LEVELS = {'low': -2.0, 'mid': 0.0, 'high': 1.0}
 PITCH_TOL = 0.5      # semitones: half the smallest gap between levels
 DUR_TOL = 0.2        # relative, per syllable (as in Chandi)
 BASE_HZ = 120.0      # reciter's mid (udAtta / pracaya) pitch; see RULES.md
-VERSION = 4          # bump when the rendering changes (invalidates the phrase cache)
+VERSION = 5          # bump when the rendering changes (invalidates the phrase cache)
 
 
 def matras(syls):
@@ -133,22 +134,24 @@ def stretch(wave, sr, anchors_in, anchors_out, ctx=0.06, fade=0.008):
     return ola.result()
 
 
-def pitch_map(wave, sr, bounds, scales, ctx=0.05, fade=0.010):
-    """Shift segment k = [bounds[k], bounds[k+1]) by pitch factor scales[k] (time unchanged),
-    each with ctx seconds of context, joined with crossfades."""
-    f = int(fade * sr)
-    ola = _OLA(len(wave), f)
-    edges = [0.0] + list(bounds[1:-1]) + [len(wave) / sr]
-    for k, sc in enumerate(scales):
-        t0, t1 = edges[k], edges[k + 1]
-        c0, c1 = max(t0 - ctx, 0), min(t1 + ctx, len(wave) / sr)
-        seg = wave[int(c0 * sr): int(c1 * sr)]
-        y = _rb(seg, sr, 1.0, sc) if abs(sc - 1) > 1e-3 else seg
-        y = np.pad(y, (0, max(0, len(seg) - len(y))))[: len(seg)]
-        s0 = int(round((t0 - c0) * sr)) - f // 2
-        s1 = int(round((t1 - c0) * sr)) + f // 2
-        ola.add(y[max(s0, 0): s1], int(round(t0 * sr)) - f // 2)
-    return ola.result()
+def world_pitch(wave, sr, bounds, levels, frame_ms=5.0, glide_ms=25.0):
+    """Set the pitch of every syllable segment k = [bounds[k], bounds[k+1]) to the level
+    levels[k] (semitones re BASE_HZ) with the WORLD vocoder: F0 (Harvest), spectral envelope
+    (CheapTrick, so formants are kept) and aperiodicity (D4C) are analysed, F0 is replaced by
+    the target contour (level steps smoothed over glide_ms), unvoiced frames stay unvoiced."""
+    import pyworld as pw
+    x = wave.astype(np.float64)
+    f0, t = pw.harvest(x, sr, f0_floor=65.0, f0_ceil=300.0, frame_period=frame_ms)
+    sp = pw.cheaptrick(x, f0, t, sr)
+    ap = pw.d4c(x, f0, t, sr)
+    target = np.full(len(t), levels[0], dtype=np.float64)
+    for k in range(1, len(levels)):
+        target[t >= bounds[k]] = levels[k]
+    n = max(int(glide_ms / frame_ms), 1)
+    target = np.convolve(np.pad(target, n // 2, mode='edge'), np.ones(n) / n, 'valid')[: len(t)]
+    new_f0 = np.where(f0 > 0, BASE_HZ * 2 ** (target / 12), 0.0)
+    y = pw.synthesize(new_f0, sp, ap, sr, frame_ms).astype(np.float32)
+    return np.pad(y, (0, max(0, len(wave) - len(y))))[: len(wave)]
 
 
 _F0_SR = 16000
@@ -164,7 +167,7 @@ def f0_track(wave, sr):
 def syllable_pitch(wave, sr, al, track=None):
     """Median F0 (semitones re BASE_HZ) over the voiced frames of each syllable segment: from
     its onset consonants to the next syllable's onset consonants (to speech end for the last),
-    i.e. exactly the region that pitch_map shifts. None where fewer than 3 voiced frames
+    i.e. exactly the region whose pitch world_pitch sets. None where fewer than 3 voiced frames
     (15 ms) are found."""
     t, f0, voiced = track or f0_track(wave, sr)
     ons, nxt = al['cons_start'], list(al['cons_start'][1:]) + [al['end']]
@@ -206,15 +209,7 @@ class PhraseResult:
     notes: list
 
 
-def _fill(vals, default=0.0):
-    """Replace None by the nearest measured neighbour (default if none)."""
-    idx = [i for i, v in enumerate(vals) if v is not None]
-    if not idx:
-        return [default] * len(vals)
-    return [v if v is not None else vals[min(idx, key=lambda j: abs(j - i))] for i, v in enumerate(vals)]
-
-
-def render_phrase(engine, syls, u, targets=None, seeds=tuple(range(8)), refine=3):
+def render_phrase(engine, syls, u, targets=None, seeds=tuple(range(5)), refine=2):
     """Render one phrase to mAtrA timing and svara pitch; verify; retry other seeds on failure.
     Returns the first verified take, else the best one (reported as non-compliant).
     targets: per-syllable mAtrAs (default: the Vedic model, matras())."""
@@ -222,63 +217,39 @@ def render_phrase(engine, syls, u, targets=None, seeds=tuple(range(8)), refine=3
     targets = targets or matras(syls)
     want = [LEVELS[PITCH[s.svara]] for s in syls]
     text = tts_text(syls)
-    best, notes, spare = None, [], None
-    takes = (s for s in seeds)
-    while True:
-        seed = next(takes, None)
-        if seed is None:
-            if spare is None:
-                break
-            # no take had every syllable voiced: process the best one (it cannot verify)
-            seed, raw, al, spare = spare[1], spare[2], spare[3], None
-        else:
-            raw = engine.synth(text, seed)
-            if len(raw) < 0.06 * sr * len(syls):
-                notes.append(f'seed {seed}: clip of {len(raw) / sr:.2f}s'); continue
-            try:
-                al = align(raw, sr, syls)
-            except RuntimeError as e:
-                notes.append(f'seed {seed}: align {e}'); continue
-            # screen: a syllable the voice devoiced (no F0) can never reach its svara level
-            unvoiced = sum(m is None for m in syllable_pitch(raw, sr, al))
-            if unvoiced:
-                notes.append(f'seed {seed}: {unvoiced} devoiced syllable(s) in the raw take')
-                if spare is None or unvoiced < spare[0]:
-                    spare = (unvoiced, seed, raw, al)
-                continue
+    best, notes = None, []
+    for seed in seeds:
+        raw = engine.synth(text, seed)
+        if len(raw) < 0.06 * sr * len(syls):
+            notes.append(f'seed {seed}: clip of {len(raw) / sr:.2f}s'); continue
+        try:
+            al = align(raw, sr, syls)
+        except RuntimeError as e:
+            notes.append(f'seed {seed}: align {e}'); continue
         # 1. time map: vowel onset i -> lead + sum(targets[:i]) * u ; speech end -> lead + total
         a_in, a_out, t = [], [], al['onsets'][0]
         for o, m in zip(al['onsets'], targets):
             a_in.append(o); a_out.append(t); t += m * u
         a_in.append(al['end']); a_out.append(t)
         out = stretch(raw, sr, a_in, a_out)
-        # 2. pitch: shift every syllable segment (onset consonants .. next onset consonants)
-        #    so its nucleus lands on its svara level; repeat on the residual error
-        for _ in range(refine + 1):
+        for _ in range(refine):  # correction passes: move the measured onsets onto the targets again
             al = align(out, sr, syls)
-            meas = syllable_pitch(out, sr, al)
-            dur_ok, u_fit, derr = check_rhythm(iois(al['onsets'], al['end']), targets)
-            pitch_ok, perr = check_pitch(meas, syls)
-            if dur_ok and pitch_ok:
+            if check_rhythm(iois(al['onsets'], al['end']), targets)[0]:
                 break
-            if not dur_ok:  # correction pass: move the measured onsets onto the targets again
-                lead = al['onsets'][0] - a_out[0]
-                out = stretch(out, sr, al['onsets'] + [al['end']], [a + lead for a in a_out])
-                al = align(out, sr, syls)
-                meas = syllable_pitch(out, sr, al)
-            shift = [w - m for w, m in zip(want, _fill(meas))]
-            if any(abs(s) > 0.05 for s in shift):
-                bounds = list(al['cons_start']) + [al['end']]
-                out = pitch_map(out, sr, bounds, [2 ** (s / 12) for s in shift])
-        else:
-            al = align(out, sr, syls)
-            meas = syllable_pitch(out, sr, al)
-            dur_ok, u_fit, derr = check_rhythm(iois(al['onsets'], al['end']), targets)
-            pitch_ok, perr = check_pitch(meas, syls)
+            lead = al['onsets'][0] - a_out[0]
+            out = stretch(out, sr, al['onsets'] + [al['end']], [a + lead for a in a_out])
+        # 2. pitch: every syllable segment (onset consonants .. next onset consonants) to its level
+        al = align(out, sr, syls)
+        out = world_pitch(out, sr, list(al['cons_start']), want)
+        # 3. verify on the final audio (re-alignment + pYIN, independent of WORLD's Harvest)
+        al = align(out, sr, syls)
+        dur_ok, u_fit, derr = check_rhythm(iois(al['onsets'], al['end']), targets)
+        pitch_ok, perr = check_pitch(syllable_pitch(out, sr, al), syls)
         res = PhraseResult(out[: int(al['end'] * sr) + int(0.05 * sr)], dur_ok and pitch_ok, dur_ok,
                            pitch_ok, u_fit, derr, perr, seed, notes)
         if res.ok:
             return res
+        notes.append(f'seed {seed}: durations {"ok" if dur_ok else "fail"}, pitch {"ok" if pitch_ok else "fail"}')
         if best is None or _badness(res) < _badness(best):
             best = res
     if best is None:

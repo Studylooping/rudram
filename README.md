@@ -21,8 +21,10 @@ mātrā as duration — with an automatic per-phrase verification report.
    - synthesis with Indic Parler-TTS (male voice "Aryan"; needs `HF_TOKEN`, the model is gated);
    - forced alignment of syllables (torchaudio MMS_FA), time-stretch so that each syllable lasts
      its mātrā target (Rubber Band R3, formants preserved);
-   - per-syllable pitch shift to its svara level (Rubber Band pitch scaling, formants preserved),
-     iterated on the measured residual;
+   - every syllable set to its svara level with the WORLD vocoder (pyworld: F0 replaced by the
+     target contour, spectral envelope and aperiodicity kept, so formants are preserved).
+     Per-syllable Rubber Band pitch scaling was tried first and dropped: it needed several passes,
+     left residual errors and devoiced some short syllables;
    - **verification on the final audio**: re-alignment (each syllable within ±20 % of its target)
      and pYIN F0 (each syllable within ±0.5 semitone of its svara level). A failing phrase is
      re-synthesised with other seeds and, if it still fails, reported as non-compliant.
@@ -39,5 +41,5 @@ Durgā Saptaśatī by classical chandas; pitch control and pitch verification ar
 checkpoint. Tests: `python -m pytest tests`.
 
 ## Limitations
-A TTS voice with pitch shifting approximates a trained Vedic reciter. Verified svara pitch and
+A TTS voice with vocoder pitch resynthesis approximates a trained Vedic reciter. Verified svara pitch and
 mātrā timing do not guarantee correct pronunciation. See RULES.md §7.

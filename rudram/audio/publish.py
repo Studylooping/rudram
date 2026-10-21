@@ -59,8 +59,9 @@ def write_readme():
                     f"{s['syl_pit']}/{s['syl']} | {', '.join(s['bad']) or '—'} |")
     (ROOT / 'audio' / 'README.md').write_text(
         '# Recitation audio\n\n'
-        'Voice: AI4Bharat Indic Parler-TTS (speaker "Aryan"), time-stretched and pitch-shifted per\n'
-        'syllable (Rubber Band R3, formants preserved). Tempo 1 mātrā = 0.125 s. Rules: `../RULES.md`.\n\n'
+        'Voice: AI4Bharat Indic Parler-TTS (speaker "Aryan"), time-stretched per syllable (Rubber Band\n'
+        'R3, formants preserved) and pitch-set per syllable (WORLD vocoder, spectral envelope kept).\n'
+        'Tempo 1 mātrā = 0.125 s. Rules: `../RULES.md`.\n\n'
         'A phrase is **compliant** only if, measured on the final audio, every syllable is within ±20 %\n'
         'of its mātrā target (forced re-alignment) *and* within ±0.5 semitone of its svara level\n'
         '(pYIN F0: anudātta −2, udātta/pracaya 0, svarita +1 semitone re 120 Hz). Per-syllable numbers\n'

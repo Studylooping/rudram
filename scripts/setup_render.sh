@@ -10,7 +10,7 @@ if [ ! -x "$VENV/bin/python" ]; then
   "$VENV/bin/pip" install -q git+https://github.com/huggingface/parler-tts.git
   # parler-tts may pull a mismatched torch/torchaudio; pin the CPU pair again
   "$VENV/bin/pip" install -q torch==2.6.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cpu
-  "$VENV/bin/pip" install -q indic_transliteration==2.3.82 pylibrb==0.1.2 soundfile pytest librosa
+  "$VENV/bin/pip" install -q indic_transliteration==2.3.82 pylibrb==0.1.2 soundfile pytest librosa==1.0.0 pyworld==0.3.5
 fi
 echo PIP_DONE
 # aligner checkpoint (1.26 GB): resumable download with a size check
