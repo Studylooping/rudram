@@ -69,7 +69,9 @@ def write_readme():
         'a TTS voice is an approximation of a trained Vedic reciter.\n\n'
         '| File | Length | Phrases compliant | Durations ok | Pitch ok | Syllables: duration ok | '
         'Syllables: pitch ok | Non-compliant phrases (unit/phrase) |\n'
-        '|---|---|---|---|---|---|---|---|\n' + '\n'.join(rows) + '\n', encoding='utf-8')
+        '|---|---|---|---|---|---|---|---|\n' + '\n'.join(rows) + '\n'
+        + ''.join(f'\n![{f.stem}](figures/{f.name})\n' for f in sorted((ROOT / 'audio' / 'figures').glob('*.png'))),
+        encoding='utf-8')
 
 
 def publish(sections):
