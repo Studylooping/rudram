@@ -68,11 +68,14 @@ class Syl:
     word_start: bool = False
     post: float = 0      # consonant sounds after the vowel up to the next vowel
     initial: bool = False  # independent vowel (no onset consonant)
+    pre: int = 0         # leading onset consonants that end the previous word (asmAn vR^i-)
 
-    def dev(self, marks=False):
-        s = ''.join(DEV_CONS[c] + VIRAMA for c in self.onset)
+    def dev(self, marks=False, skip=0):
+        """Devanagari of the syllable; skip leaves out its first `skip` onset consonants."""
+        onset = self.onset[skip:]
+        s = ''.join(DEV_CONS[c] + VIRAMA for c in onset)
         ind, sign = DEV_VOWEL[self.vowel]
-        s = s[:-1] + sign if self.onset else ind
+        s = s[:-1] + sign if onset else ind
         if self.matra == 3:
             s += '३'
         mark = DEV_SVARA.get(self.svara, '') if marks else ''
@@ -139,11 +142,13 @@ def tokenize(text):
 def syllabify(text):
     """ITRANS phrase -> (list of Syl, list of ignored-mark notes)."""
     toks = tokenize(text)
-    syls, pending, notes, word_start = [], [], [], True
+    syls, pending, notes, word_start, cut = [], [], [], True, 0
     last = None  # kind of last sounding token
     for t in toks:
         kind = t[0]
         if kind == 'W':
+            if pending and not word_start:
+                cut = len(pending)  # these consonants close the previous word
             word_start = True
             continue
         if kind == 'X':
@@ -154,8 +159,8 @@ def syllabify(text):
             pending.append(t[1]); last = 'C'
         elif kind == 'V':
             syls.append(Syl(onset=pending, vowel=t[1], matra=t[2], word_start=word_start or not syls,
-                            initial=not pending))
-            pending, word_start, last = [], False, 'V'
+                            initial=not pending, pre=cut if syls else 0))
+            pending, word_start, last, cut = [], False, 'V', 0
         elif kind == 'P':
             syls[-1].matra = 3
         elif kind == 'K':
@@ -192,10 +197,15 @@ def clean(text):
     return text
 
 
-def devanagari(syls, marks=False):
+def devanagari(syls, marks=False, dev=None):
+    """Words in Devanagari. A consonant that ends a word but stands in the next syllable's onset
+    (asmAn vR^iNaktu) is written with its own word. dev(syl, skip) renders one syllable."""
+    dev = dev or (lambda s, skip: s.dev(marks, skip))
     out = []
     for s in syls:
         if s.word_start and out:
+            if s.pre:
+                out.append(''.join(DEV_CONS[c] + VIRAMA for c in s.onset[:s.pre]))
             out.append(' ')
-        out.append(s.dev(marks))
+        out.append(dev(s, s.pre if s.word_start and out else 0))
     return ''.join(out)

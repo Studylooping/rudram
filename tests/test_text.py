@@ -39,3 +39,11 @@ def test_sources_convert_to_same_syllables():
     dev = dev_to_itrans('नम॑स्ते रुद्र म॒न्यव॑ उ॒तो त॒ इष॑वे॒ नमः॑')
     brh = baraha_to_itrans('nama#stE rudra maqnyava# uqtOtaq iSha#vEq nama#H')
     assert svaras(ours) == svaras(dev) == svaras(brh)
+
+
+def test_word_final_consonant_stays_with_its_word():
+    syls, _ = syllabify(r"a\`smAnvR^i\'Naktu vi\`shvata\'H")
+    assert devanagari(syls) == 'अस्मान्वृणक्तु विश्वतः'
+    syls, _ = syllabify(r"a\`smAn vR^i\'Naktu")
+    assert devanagari(syls) == 'अस्मान् वृणक्तु'
+    assert [s.post for s in syls] == [2, 2, 1, 2, 0]  # timing unchanged: n v still follow mA

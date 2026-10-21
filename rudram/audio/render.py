@@ -14,7 +14,7 @@ import pylibrb
 import torch
 
 from rudram.audio.align import align, iois
-from rudram.itrans import PITCH
+from rudram.itrans import PITCH, devanagari
 
 # relative pitch of each svara class in semitones above the base (RULES.md section 2)
 LEVELS = {'low': -2.0, 'mid': 0.0, 'high': 1.0}
@@ -39,16 +39,10 @@ def matras(syls):
 def tts_text(syls):
     """Devanagari for the TTS voice (no svara marks). The Taittiriya anusvAra before r / spirants
     is written गुं so the voice says [guM] (RULES.md section 4)."""
-    out = []
-    for s in syls:
-        if s.word_start and out:
-            out.append(' ')
-        coda = list(s.coda)
-        t = dataclasses.replace(s, coda=[c for c in coda if c != 'gm'], svara='U').dev()
-        if 'gm' in coda:
-            t += 'गुं'
-        out.append(t)
-    return ''.join(out) + '।'  # a closing danda: the voice ends the phrase naturally
+    def dev(s, skip):
+        t = dataclasses.replace(s, coda=[c for c in s.coda if c != 'gm'], svara='U').dev(False, skip)
+        return t + ('गुं' if 'gm' in s.coda else '')
+    return devanagari(syls, dev=dev) + '।'  # a closing danda: the voice ends the phrase naturally
 
 
 class ParlerEngine:
