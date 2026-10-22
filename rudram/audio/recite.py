@@ -47,6 +47,8 @@ def main():
     ap.add_argument('--section', required=True, choices=sorted(SECTIONS))
     ap.add_argument('--u', type=float, default=0.125, help='seconds per mAtrA')
     ap.add_argument('--units', default='', help='comma-separated unit ids (default: all)')
+    ap.add_argument('--unit-out', action='store_true',
+                    help='write each complete unit to out/units/<unit>.wav/.json instead of one section file')
     a = ap.parse_args()
     units = SECTIONS[a.section]()
     if a.units:
@@ -57,6 +59,7 @@ def main():
     audio, report, failed = [], [], []
     sr = engine.sr
     for unit in units:
+        n_audio, n_report, n_failed = len(audio), len(report), len(failed)
         for k, (text, pause) in enumerate(unit['phrases']):
             syls, notes = syllabify(text)
             targets = targets_for(unit, syls)
@@ -81,7 +84,17 @@ def main():
             report.append(rep)
             print(f"{unit['id']} {k + 1}: {'verified' if rep['ok'] else 'NOT COMPLIANT'} "
                   f"(dur {rep['max_dur_err']:.0%}, pitch {rep['max_pitch_err_st']} st, seed {rep['seed']})", flush=True)
+        if a.unit_out and len(failed) == n_failed:  # unit complete: its phrases, no trailing pause
+            out = ROOT / 'out' / 'units' / f"{unit['id']}.wav"
+            out.parent.mkdir(parents=True, exist_ok=True)
+            sf.write(out, np.concatenate(audio[n_audio:-1]), sr)
+            out.with_suffix('.json').write_text(json.dumps(report[n_report:], ensure_ascii=False, indent=1),
+                                                encoding='utf-8')
+            print(f"{out}: {sum(x['ok'] for x in report[n_report:])}/{len(report) - n_report} phrases verified compliant",
+                  flush=True)
         audio.append(silence(sr, PAUSE['unit'], a.u))
+    if a.unit_out:
+        raise SystemExit(1 if failed else 0)
     if failed:
         print(f'{a.section}: {len(failed)} phrase(s) failed, section not written; rerun to retry them')
         raise SystemExit(1)

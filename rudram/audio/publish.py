@@ -1,11 +1,14 @@
-"""Publish finished section renders: out/<section>_<engine>.wav -> audio/<nn>_<name>.mp3,
-audio/reports/<section>.json and the compliance table in audio/README.md; commit and push.
+"""Publish finished renders, commit and push (adapted from Studylooping/Chandi publish.py).
 
-  python -m rudram.audio.publish --sections pilot
-(adapted from Studylooping/Chandi chandi/audio/publish.py)
+  python -m rudram.audio.publish --sections pilot      section file -> audio/<nn>_<name>.mp3
+  python -m rudram.audio.publish --units namaka-2,...  out/units/<unit>.wav -> audio/units/<NN>_<unit>.mp3
+                                                       + audio/reports/<unit>.json (only those paths)
+Several sessions may publish units to the branch at the same time: each commits only its own
+files and rebases before pushing.
 """
 import argparse
 import json
+import os
 import pathlib
 import subprocess
 import time
@@ -17,9 +20,23 @@ SECTIONS = ['pilot', 'mahanyasa', 'namaka', 'chamaka']
 NAMES = {'pilot': 'PILOT_Dhyana-Namaka-anuvaka-1', 'mahanyasa': 'Mahanyasa', 'namaka': 'Namaka',
          'chamaka': 'Chamaka'}
 REPORTS = ROOT / 'audio' / 'reports'
+UNITS = ROOT / 'audio' / 'units'
 BRANCH = 'claude/rudram-svara-audio'
+REMOTE = 'https://github.com/studylooping/rudram'  # lowercase: the push credential is scoped to it
 TRAILER = ('\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\n'
-           'Claude-Session: https://claude.ai/code/session_01TRJmw72DzoZNhLcE7aUrSD')
+           'Claude-Session: ' + os.environ.get('RUDRAM_SESSION_URL',
+                                              'https://claude.ai/code/session_01TRJmw72DzoZNhLcE7aUrSD'))
+
+
+def unit_order():
+    """All unit ids in traditional recitation order (Namaka with its dhyAna, then Camaka)."""
+    from rudram.corpus import SECTIONS as CORPUS
+    return [u['id'] for sec in ('namaka', 'chamaka') for u in CORPUS[sec]()]
+
+
+def unit_mp3(unit, order=None):
+    order = order or unit_order()
+    return UNITS / f'{order.index(unit):02d}_{unit}.mp3'
 
 
 def mp3_name(sec):
@@ -89,10 +106,15 @@ def publish(sections):
     if not subprocess.run(['git', 'diff', '--cached', '--quiet'], cwd=ROOT).returncode:
         return
     run('git', 'commit', '-m', f'Add recitation audio: {", ".join(sections)}' + TRAILER)
-    for attempt in range(5):
+    push(sections)
+
+
+def push(what):
+    for attempt in range(6):
         try:
-            run('git', 'push', '-u', 'origin', BRANCH)
-            print('published', sections, flush=True)
+            run('git', 'pull', '--rebase', '--autostash', REMOTE, BRANCH)
+            run('git', 'push', REMOTE, f'HEAD:{BRANCH}')
+            print('published', what, flush=True)
             return
         except subprocess.CalledProcessError as e:
             print('push retry', attempt + 1, e.stderr.strip()[-200:], flush=True)
@@ -100,7 +122,33 @@ def publish(sections):
     raise RuntimeError('push failed after retries')
 
 
+def publish_units(units):
+    """Encode out/units/<unit>.wav and commit only that unit's mp3 + report."""
+    order = unit_order()
+    UNITS.mkdir(parents=True, exist_ok=True)
+    REPORTS.mkdir(parents=True, exist_ok=True)
+    paths = []
+    for unit in units:
+        wav = ROOT / 'out' / 'units' / f'{unit}.wav'
+        mp3 = unit_mp3(unit, order)
+        run('ffmpeg', '-v', 'error', '-y', '-i', str(wav), '-ac', '1', '-b:a', '128k',
+            '-metadata', f'title={unit}', '-metadata', 'album=Sri Rudram (svara)', str(mp3))
+        (REPORTS / f'{unit}.json').write_text(wav.with_suffix('.json').read_text(encoding='utf-8'), encoding='utf-8')
+        paths += [str(mp3), str(REPORTS / f'{unit}.json')]
+    run('git', 'add', *paths)
+    if not subprocess.run(['git', 'diff', '--cached', '--quiet'], cwd=ROOT).returncode:
+        print('nothing new to publish', units, flush=True)
+        return
+    run('git', 'commit', '-m', f'Add recitation unit audio: {", ".join(units)}' + TRAILER, '--', *paths)
+    push(units)
+
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
-    ap.add_argument('--sections', required=True, help='comma-separated')
-    publish([s for s in ap.parse_args().sections.split(',') if s])
+    ap.add_argument('--sections', default='', help='comma-separated section renders')
+    ap.add_argument('--units', default='', help='comma-separated units from out/units/')
+    a = ap.parse_args()
+    if a.units:
+        publish_units([s for s in a.units.split(',') if s])
+    if a.sections:
+        publish([s for s in a.sections.split(',') if s])

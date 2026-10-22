@@ -112,6 +112,19 @@ def namaka_units(src=None):
     return [by[i] for i in order]
 
 
+def chamaka_units(src=None):
+    c = fetch.section_itrans(src)['chamaka']
+    chunks = re.split(r'\|\|\s*(\d+)\s*\|\|', c)
+    units = [{'id': f'chamaka-{int(chunks[k + 1])}', 'title': f'Camaka anuvAka {int(chunks[k + 1])}',
+              'kind': 'svara', 'phrases': svara_phrases(chunks[k] + '||')}
+             for k in range(0, len(chunks) - 1, 2)]
+    if [u['id'] for u in units] != [f'chamaka-{i}' for i in range(1, 12)]:
+        raise ValueError(f"camaka anuvAkas found: {[u['id'] for u in units]}")
+    units.append({'id': 'chamaka-tail', 'title': 'Camaka closing mantras (iDA devahUH ..., zAntiH)',
+                  'kind': 'svara', 'phrases': svara_phrases(chunks[-1])})
+    return units
+
+
 def dhyana_units(src=None):
     r = fetch.section_itrans(src)['rudra_file']
     body = r[r.index('\\section{|| dhyAnam ||}') + len('\\section{|| dhyAnam ||}'):]
@@ -132,6 +145,7 @@ def dhyana_units(src=None):
 SECTIONS = {
     'pilot': lambda: dhyana_units() + namaka_units()[:3],
     'namaka': lambda: dhyana_units() + namaka_units(),
+    'chamaka': lambda: chamaka_units(),
 }
 
 
