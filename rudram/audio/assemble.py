@@ -46,7 +46,7 @@ def assemble(partial=False):
         units = [u['id'] for u in SECTIONS[sec]()]
         have = [u for u in units if unit_mp3(u, order).exists() and (REPORTS / f'{u}.json').exists()]
         missing = [u for u in units if u not in have]
-        if missing and not partial:
+        if (missing and not partial) or not have:
             print(f'{sec}: not assembled, missing units: {", ".join(missing)}')
             continue
         sr = 44100
