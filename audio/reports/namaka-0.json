@@ -1,0 +1,56 @@
+[
+ {
+  "unit": "namaka-0",
+  "phrase": 1,
+  "text": "ओम् नमो भगवते॑ रुद्रा॒य",
+  "svara": "UUUUUUSUAU",
+  "matra": [
+   3.0,
+   1.5,
+   2.5,
+   1.5,
+   1.5,
+   1.5,
+   2.5,
+   2.0,
+   2.5,
+   1.0
+  ],
+  "ok": true,
+  "durations_ok": true,
+  "pitch_ok": true,
+  "u": 0.1244,
+  "max_dur_err": 0.112,
+  "dur_errors": [
+   0.027,
+   -0.027,
+   -0.027,
+   0.082,
+   -0.027,
+   0.082,
+   -0.027,
+   -0.027,
+   -0.027,
+   0.112
+  ],
+  "pitch_errors_st": [
+   -0.11,
+   0.14,
+   -0.11,
+   0.19,
+   -0.21,
+   -0.21,
+   -0.11,
+   0.09,
+   0.09,
+   -0.11
+  ],
+  "max_pitch_err_st": 0.21,
+  "unmeasured": 0,
+  "seed": 2,
+  "notes": [
+   "seed 0: durations fail, pitch ok",
+   "seed 1: durations fail, pitch ok"
+  ]
+ }
+]
